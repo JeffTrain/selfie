@@ -13,6 +13,10 @@ def rect_to_bounding_box(rect):
     return (x, y, w, h)
 
 
+def scale_rect(rect, scale):
+    (x, y, w, h) = rect
+    return (int(x / scale), int(y / scale), int(w / scale), int(h / scale))
+
 def trace_face(frame):
     scale = 200 / min(frame.shape[1], frame.shape[0])
     thumb = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
@@ -20,10 +24,10 @@ def trace_face(frame):
     faces = face_detector(gray, 1)
 
     for i, face_rect in enumerate(faces):
-        (x, y, w, h) = rect_to_bounding_box(face_rect)
-        cv2.rectangle(gray, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        (x, y, w, h) = scale_rect(rect_to_bounding_box(face_rect), scale)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2) 
 
-    return gray
+    return frame
 
 while True:
     ret, frame = video_capture.read()
