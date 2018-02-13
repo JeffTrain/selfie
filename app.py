@@ -50,20 +50,19 @@ def add_sun_glasses(target_image, center_x, center_y, width, height=None):
 
     sun_glasses = cv2.resize(sun_glasses, (width, height), interpolation=cv2.INTER_AREA)
 
-    # _, mask = cv2.threshold(cv2.cvtColor(sun_glasses, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY_INV)
-    # inv_mask = cv2.bitwise_not(mask)
+    _, mask = cv2.threshold(cv2.cvtColor(sun_glasses, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY_INV)
+    inv_mask = cv2.bitwise_not(mask)
 
     start_x = int(center_x - width / 2)
     start_y = int(center_y - height / 2)
 
-    # glasses_area = target_image[start_x:start_x + width, start_y:start_y + height]
-    # glasses_area_mask = cv2.bitwise_and(glasses_area, glasses_area, mask=inv_mask)
-    #
-    # print(mask)
-    # print(glasses_area)
-    # merged = cv2.add(mask, glasses_area_mask)
+    glasses_area = target_image[start_y:start_y + height, start_x:start_x + width]
+    glasses_area_mask = cv2.bitwise_and(glasses_area, glasses_area, mask=inv_mask)
 
-    target_image[start_y:start_y + height, start_x:start_x + width] = sun_glasses
+    masked_glasses = cv2.bitwise_and(sun_glasses, sun_glasses, mask=mask)
+    merged = cv2.add(glasses_area_mask, masked_glasses)
+
+    target_image[start_y:start_y + height, start_x:start_x + width] = merged
 
     return target_image
 
@@ -82,8 +81,6 @@ def trace_face(frame):
         center_y = int(shape[27][1] / scale)
 
         add_sun_glasses(frame, center_x, center_y, int(abs(shape[17][0] - shape[26][0]) / scale) + 30)
-        for point in shape:
-            cv2.circle(frame, scale_point(point, scale), 2, (0, 0, 255), 1)
 
     return frame
 
