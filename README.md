@@ -6,7 +6,10 @@
 
 # 关键步骤
 * 人脸识别并跟踪（仅需41行代码，效果如下）：
-![在马桶上就完成了](toilet.png)
+![在马桶上就完成了](screenshots/toilet.png)
+
+* 识别68个特征点
+![68个特征点](screenshots/landmarks.png)
 
 * 加特效 (TODO)
 
