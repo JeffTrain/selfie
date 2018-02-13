@@ -11,7 +11,8 @@
 * 识别68个特征点
 ![68个特征点](screenshots/landmarks.png)
 
-* 加特效 (TODO)
+* 加特效
+![墨镜特效](screenshots/sun-glasses.jpg)
 
 # 本地开发
 ```bash
