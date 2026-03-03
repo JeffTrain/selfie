@@ -5,6 +5,8 @@ import numpy as np
 import os
 import os.path
 
+from lego_head import draw_lego_head
+
 video_capture = cv2.VideoCapture(0)
 face_detector = dlib.get_frontal_face_detector()
 
@@ -13,6 +15,9 @@ landmark_file_path = os.path.realpath(os.path.join(dir_path, './shape_predictor_
 predictor = dlib.shape_predictor(landmark_file_path)
 
 sun_glasses_file = os.path.realpath(os.path.join(dir_path, './images/sunglasses.png'))
+
+# 特效模式: 'sunglasses' = 墨镜, 'lego' = LEGO 小人仔头部
+effect_mode = 'sunglasses'
 
 
 def rect_to_bounding_box(rect):
@@ -77,21 +82,38 @@ def trace_face(frame):
         shape = predictor(gray, face_rect)
         shape = shape_to_np(shape)
 
-        center_x = int(shape[27][0] / scale)
-        center_y = int(shape[27][1] / scale)
-
-        add_sun_glasses(frame, center_x, center_y, int(abs(shape[17][0] - shape[26][0]) / scale) + 30)
+        if effect_mode == 'lego':
+            # 将特征点坐标缩放回原始图像尺寸
+            scaled_shape = np.array([[int(pt[0] / scale), int(pt[1] / scale)] for pt in shape])
+            draw_lego_head(frame, scaled_shape)
+        else:
+            center_x = int(shape[27][0] / scale)
+            center_y = int(shape[27][1] / scale)
+            add_sun_glasses(frame, center_x, center_y, int(abs(shape[17][0] - shape[26][0]) / scale) + 30)
 
     return frame
 
 
+print('特效切换: 按 L 键切换为 LEGO 小人仔头部, 按 S 键切换为墨镜, 按 Q 键退出')
+
 while True:
     ret, frame = video_capture.read()
     face_trace_frame = trace_face(frame)
+
+    # 显示当前模式提示
+    mode_text = 'LEGO Mode (L/S to switch)' if effect_mode == 'lego' else 'Sunglasses Mode (L/S to switch)'
+    cv2.putText(face_trace_frame, mode_text, (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
     cv2.imshow('Video', face_trace_frame)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
         break
+    elif key == ord('l') or key == ord('L'):
+        effect_mode = 'lego'
+    elif key == ord('s') or key == ord('S'):
+        effect_mode = 'sunglasses'
 
 video_capture.release()
 cv2.destroyAllWindows()

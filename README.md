@@ -14,15 +14,30 @@
 * 加特效
 ![墨镜特效](screenshots/sun-glasses.jpg)
 
+* LEGO 小人仔头部特效（按 L 键切换）
+  - 识别人脸特征点后，将人物风格化为经典 LEGO 小人仔的黄色圆柱头部
+  - 包含经典黑色圆点眼睛、弧形微笑和顶部凸点
+
+# 按键操作
+- `L` 键：切换为 LEGO 小人仔头部特效
+- `S` 键：切换为墨镜特效
+- `Q` 键：退出程序
+
 # 本地开发
 ```bash
 git clone https://github.com/JeffTrain/selfie.git
 cd selfie
-pip install -r requirements.txt
+pyenv local 3.10.16
+python -m pip install -r requirements.txt
+python -m pip install pytest
 ```
 
 # 本地运行
 ```bash
-cd selfie
 python app.py
+```
+
+# 运行测试
+```bash
+python -m pytest test_lego_head.py -v
 ```
