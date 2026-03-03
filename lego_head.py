@@ -256,14 +256,14 @@ def _clip_region(x, y, w, h, img_h, img_w):
 
 def draw_lego_head(frame, landmarks):
     """
-    在图像上绘制个性化 LEGO 小人仔头部，覆盖真实人脸。
+    在图像上绘制 3D 圆柱体风格的 LEGO 小人仔头部，覆盖真实人脸。
 
-    个性化特征包括：
-    - 真实肤色作为头部底色
-    - 眼睛开合跟随真实眼睛
-    - 嘴型跟随真实嘴巴（闭合/张开）
-    - 眉毛角度跟随真实眉毛
-    - 头发颜色来自真实头发
+    视觉特征：
+    - 圆柱体形状：两侧渐变暗、中心最亮，营造立体感
+    - 顶部椭圆盖：从正面看到的圆柱顶面
+    - 底部椭圆弧：下巴/颈部连接处
+    - 3D 凸点 (stud)：顶部的立体圆柱连接点
+    - 个性化五官：眼睛、嘴巴、眉毛跟随真实表情
 
     参数:
         frame: numpy array (H, W, 3)，BGR 格式图像
@@ -280,46 +280,55 @@ def draw_lego_head(frame, landmarks):
     cy = geo['center_y']
     hw = geo['head_width']
     hh = geo['head_height']
-
-    # 使用真实肤色（与 LEGO 黄色混合，保持 LEGO 风格）
-    skin = features['skin_color']
-    head_color = _blend_color(skin, LEGO_YELLOW, 0.35)
-    head_outline = _darken_color(head_color, 0.6)
-
-    # --- 1. 绘制头部主体 ---
     half_w = hw // 2
     half_h = hh // 2
 
-    top_left = (cx - half_w, cy - half_h)
-    bottom_right = (cx + half_w, cy + half_h)
-    corner_radius = int(hw * 0.18)
+    # LEGO 黄色主色调（微量肤色调整）
+    skin = features['skin_color']
+    head_color = _blend_color(skin, LEGO_YELLOW, 0.82)
+    head_outline = LEGO_OUTLINE
 
-    _draw_rounded_rect(frame, top_left, bottom_right, corner_radius,
-                       head_color, thickness=-1)
+    # --- 1. 绘制 3D 圆柱体头部 ---
+    _draw_3d_cylinder(frame, cx, cy, hw, hh, head_color, head_outline)
 
-    outline_thickness = max(2, int(hw * 0.025))
-    _draw_rounded_rect(frame, top_left, bottom_right, corner_radius,
-                       head_outline, thickness=outline_thickness)
-
-    # --- 2. 绘制头发 ---
+    # --- 2. 绘制头发（方块状 LEGO 发件） ---
     hair_color = features['hair_color']
-    hair_height = int(hh * 0.22)
-    hair_top = cy - half_h - 2
+    hair_h = int(hh * 0.20)
+    hair_overhang = int(hw * 0.04)
+    # 发件底部与顶部椭圆盖齐平
+    cap_ry = int(hh * 0.08)  # 与 _draw_3d_cylinder 的 cap_ry 一致
+    hair_bottom_y = cy - half_h + cap_ry
+    hair_top_y = hair_bottom_y - hair_h
+    hair_outline_c = _darken_color(hair_color, 0.45)
+    hair_ol_thick = max(2, int(hw * 0.03))
+
+    hair_left = cx - half_w - hair_overhang
+    hair_right = cx + half_w + hair_overhang
+
+    # 发件主体
     hair_pts = np.array([
-        [cx - half_w - 3, hair_top + hair_height],
-        [cx - half_w - 5, hair_top - 2],
-        [cx - half_w // 2, hair_top - hair_height // 2],
-        [cx, hair_top - hair_height // 3],
-        [cx + half_w // 2, hair_top - hair_height // 2],
-        [cx + half_w + 5, hair_top - 2],
-        [cx + half_w + 3, hair_top + hair_height],
+        [hair_left, hair_bottom_y],
+        [hair_left, hair_top_y + int(hair_h * 0.2)],
+        [hair_left + int(hw * 0.08), hair_top_y],
+        [hair_right - int(hw * 0.08), hair_top_y],
+        [hair_right, hair_top_y + int(hair_h * 0.2)],
+        [hair_right, hair_bottom_y],
     ], dtype=np.int32)
     cv2.fillPoly(frame, [hair_pts], hair_color, cv2.LINE_AA)
-    cv2.polylines(frame, [hair_pts], False, _darken_color(hair_color, 0.5),
-                  max(1, int(hw * 0.02)), cv2.LINE_AA)
+    cv2.polylines(frame, [hair_pts], True, hair_outline_c,
+                  hair_ol_thick, cv2.LINE_AA)
 
-    # --- 3. 绘制眼睛（动态开合） ---
-    eye_max_radius = max(3, int(hw * 0.065))
+    # --- 3. 绘制 3D 凸点 (stud) ---
+    sx, sy = geo['stud_center']
+    sr = max(geo['stud_radius'], int(hw * 0.14))
+    # 凸点位于发件顶部
+    stud_base_y = hair_top_y
+    stud_height = max(int(sr * 0.8), 5)
+    _draw_3d_stud(frame, cx, stud_base_y, sr, stud_height,
+                  head_color, head_outline, hw)
+
+    # --- 4. 绘制眼睛（动态开合，经典 LEGO 大黑点） ---
+    eye_max_radius = max(4, int(hw * 0.085))
     lx, ly = geo['left_eye']
     rx, ry = geo['right_eye']
 
@@ -329,7 +338,7 @@ def draw_lego_head(frame, landmarks):
     _draw_lego_eye(frame, lx, ly, eye_max_radius, left_open, hw)
     _draw_lego_eye(frame, rx, ry, eye_max_radius, right_open, hw)
 
-    # --- 4. 绘制眉毛 ---
+    # --- 5. 绘制眉毛 ---
     brow_lx, brow_ly = geo['brow_left']
     brow_rx, brow_ry = geo['brow_right']
     brow_w = geo['brow_width']
@@ -343,25 +352,154 @@ def draw_lego_head(frame, landmarks):
     _draw_lego_brow(frame, brow_rx, brow_ry, brow_w, right_brow_angle,
                     brow_thickness, head_outline)
 
-    # --- 5. 绘制嘴巴（动态开合） ---
+    # --- 6. 绘制嘴巴（动态开合） ---
     mx, my = geo['mouth_center']
     mw = geo['mouth_width']
     mouth_open = features['mouth_openness']
 
     _draw_lego_mouth(frame, mx, my, mw, mouth_open, hw)
 
-    # --- 6. 绘制顶部凸点 (stud) ---
-    sx, sy = geo['stud_center']
-    sr = geo['stud_radius']
-    stud_h = int(sr * 0.6)
-
-    stud_color = _blend_color(head_color, LEGO_STUD_TOP, 0.5)
-    cv2.ellipse(frame, (sx, sy), (sr, stud_h), 0, 0, 360,
-                stud_color, -1, cv2.LINE_AA)
-    cv2.ellipse(frame, (sx, sy), (sr, stud_h), 0, 0, 360,
-                head_outline, max(1, int(hw * 0.02)), cv2.LINE_AA)
-
     return frame
+
+
+def _draw_3d_cylinder(frame, cx, cy, width, height, base_color, outline_color):
+    """
+    绘制 3D 圆柱体形状的 LEGO 头部。
+
+    通过逐列渐变着色模拟圆柱体的光照效果：
+    - 中心最亮（正面光照）
+    - 两侧逐渐变暗（曲面远离光源）
+    - 顶部和底部用椭圆弧表示圆柱端面
+    """
+    img_h, img_w = frame.shape[:2]
+    half_w = width // 2
+    half_h = height // 2
+    cap_ry = int(height * 0.08)  # 顶部椭圆的纵向半径
+
+    # 准备颜色
+    b_base, g_base, r_base = base_color
+    dark_factor = 0.65  # 边缘最暗为基色的 65%
+
+    # --- 逐列绘制圆柱体主体（带渐变）---
+    for dx in range(-half_w, half_w + 1):
+        x = cx + dx
+        if x < 0 or x >= img_w:
+            continue
+
+        # 用 cos 曲线计算该列的亮度因子
+        # dx=0 时 factor=1.0 (最亮), dx=±half_w 时 factor=dark_factor
+        t = abs(dx) / max(half_w, 1)
+        brightness = 1.0 - (1.0 - dark_factor) * (t * t)  # 二次曲线，更自然
+
+        col_b = int(b_base * brightness)
+        col_g = int(g_base * brightness)
+        col_r = int(r_base * brightness)
+        color = (col_b, col_g, col_r)
+
+        # 该列的纵向范围：从顶部椭圆到底部椭圆
+        # 顶部椭圆：y = cy - half_h + cap_ry * (1 - sqrt(1 - (dx/half_w)^2))
+        # 让顶部呈椭圆弧形
+        if half_w > 0 and abs(dx) <= half_w:
+            ellipse_t = 1.0 - math.sqrt(max(0, 1.0 - t * t))
+            top_y = int(cy - half_h + cap_ry * ellipse_t)
+            bottom_y = int(cy + half_h - cap_ry * ellipse_t)
+        else:
+            top_y = cy - half_h + cap_ry
+            bottom_y = cy + half_h - cap_ry
+
+        top_y = max(0, top_y)
+        bottom_y = min(img_h - 1, bottom_y)
+
+        if top_y < bottom_y:
+            frame[top_y:bottom_y + 1, x] = color
+
+    # --- 顶部椭圆盖面 ---
+    # 盖面颜色略亮（顶面受光）
+    cap_color = _blend_color(base_color, (40, 235, 255), 0.15)
+    cap_center_y = cy - half_h
+    cv2.ellipse(frame, (cx, cap_center_y), (half_w, cap_ry), 0, 0, 360,
+                cap_color, -1, cv2.LINE_AA)
+    # 盖面轮廓
+    cv2.ellipse(frame, (cx, cap_center_y), (half_w, cap_ry), 0, 0, 360,
+                outline_color, max(2, int(width * 0.02)), cv2.LINE_AA)
+
+    # --- 底部椭圆弧（下半部分可见） ---
+    bottom_center_y = cy + half_h
+    # 只画下半弧（0~180度），上半弧被圆柱体遮挡
+    bottom_dark = _darken_color(base_color, 0.55)
+    cv2.ellipse(frame, (cx, bottom_center_y), (half_w, cap_ry), 0, 0, 180,
+                bottom_dark, -1, cv2.LINE_AA)
+    cv2.ellipse(frame, (cx, bottom_center_y), (half_w, cap_ry), 0, 0, 180,
+                outline_color, max(2, int(width * 0.02)), cv2.LINE_AA)
+
+    # --- 左右轮廓线 ---
+    ol_thick = max(2, int(width * 0.025))
+    left_x = cx - half_w
+    right_x = cx + half_w
+    cv2.line(frame, (left_x, cap_center_y), (left_x, bottom_center_y),
+             outline_color, ol_thick, cv2.LINE_AA)
+    cv2.line(frame, (right_x, cap_center_y), (right_x, bottom_center_y),
+             outline_color, ol_thick, cv2.LINE_AA)
+
+    # --- 高光反射条（左侧偏前，模拟塑料光泽） ---
+    highlight_x = cx - int(half_w * 0.5)
+    highlight_w = max(2, int(width * 0.06))
+    highlight_top = cap_center_y + cap_ry
+    highlight_bot = bottom_center_y - cap_ry
+    if highlight_top < highlight_bot:
+        overlay = frame.copy()
+        cv2.rectangle(overlay,
+                      (highlight_x - highlight_w // 2, highlight_top),
+                      (highlight_x + highlight_w // 2, highlight_bot),
+                      (60, 240, 255), -1)
+        cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+
+
+def _draw_3d_stud(frame, cx, base_y, radius, height, head_color, outline_color, hw):
+    """
+    绘制 3D 凸点 (stud) — LEGO 头顶的标志性圆柱连接点。
+
+    从正面看：
+    - 底部椭圆（与头顶接触面）
+    - 左右竖直线（圆柱侧面）
+    - 顶部椭圆（凸点顶面，最亮）
+    """
+    stud_ry = max(3, int(radius * 0.35))  # 椭圆纵向半径
+    stud_top_y = base_y - height
+
+    stud_side_color = _blend_color(head_color, LEGO_STUD_TOP, 0.4)
+    stud_top_color = _blend_color(head_color, LEGO_STUD_TOP, 0.7)
+    ol_thick = max(2, int(hw * 0.02))
+
+    # 圆柱侧面（矩形 + 渐变色）
+    cv2.rectangle(frame,
+                  (cx - radius, stud_top_y + stud_ry),
+                  (cx + radius, base_y),
+                  stud_side_color, -1)
+
+    # 左右轮廓线
+    cv2.line(frame, (cx - radius, stud_top_y + stud_ry),
+             (cx - radius, base_y), outline_color, ol_thick, cv2.LINE_AA)
+    cv2.line(frame, (cx + radius, stud_top_y + stud_ry),
+             (cx + radius, base_y), outline_color, ol_thick, cv2.LINE_AA)
+
+    # 底部椭圆（被头顶遮挡，只画下半弧暗示连接）
+    cv2.ellipse(frame, (cx, base_y), (radius, stud_ry), 0, 0, 180,
+                _darken_color(stud_side_color, 0.7), -1, cv2.LINE_AA)
+    cv2.ellipse(frame, (cx, base_y), (radius, stud_ry), 0, 0, 180,
+                outline_color, ol_thick, cv2.LINE_AA)
+
+    # 顶部椭圆（凸点顶面，最亮）
+    cv2.ellipse(frame, (cx, stud_top_y), (radius, stud_ry), 0, 0, 360,
+                stud_top_color, -1, cv2.LINE_AA)
+    cv2.ellipse(frame, (cx, stud_top_y), (radius, stud_ry), 0, 0, 360,
+                outline_color, ol_thick, cv2.LINE_AA)
+
+    # 顶面高光
+    highlight_r = max(2, radius // 3)
+    cv2.ellipse(frame, (cx - radius // 4, stud_top_y - stud_ry // 4),
+                (highlight_r, max(1, highlight_r // 2)), 0, 0, 360,
+                (80, 245, 255), -1, cv2.LINE_AA)
 
 
 def _blend_color(color1, color2, alpha):

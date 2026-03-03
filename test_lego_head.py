@@ -228,6 +228,182 @@ class TestDrawLegoHead:
         result = draw_lego_head(frame, landmarks)
         assert result.shape == frame.shape
 
+    def test_head_color_is_predominantly_lego_yellow(self):
+        """头部颜色应以 LEGO 经典黄色为主调，而非肤色
+
+        LEGO 小人仔最标志性的特征就是亮黄色头部。
+        在 BGR 空间中，LEGO 黄色表现为 R>200, G>180, B<80。
+        头部中心区域的平均颜色应满足此条件。
+        """
+        frame = self._make_frame()
+        # 用肤色填充脸部区域（模拟真实场景采样到肤色）
+        frame[200:280, 280:360] = (130, 180, 220)  # 典型肤色 BGR
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        # 取头部正中心的色块（避免边缘/轮廓）
+        region = result[225:255, 300:340]
+        avg_b = np.mean(region[:, :, 0])
+        avg_g = np.mean(region[:, :, 1])
+        avg_r = np.mean(region[:, :, 2])
+
+        # R 和 G 通道要高（黄色特征），B 通道要低
+        assert avg_r > 200, f"R 通道 {avg_r:.0f} 太低，LEGO 黄色 R 应 > 200"
+        assert avg_g > 170, f"G 通道 {avg_g:.0f} 太低，LEGO 黄色 G 应 > 170"
+        assert avg_b < 100, f"B 通道 {avg_b:.0f} 太高，LEGO 黄色 B 应 < 100"
+
+    def test_head_has_thick_outline(self):
+        """LEGO 头部应有明显的深色轮廓线
+
+        LEGO 小人仔的塑料感来自粗实的轮廓边缘。
+        头部左右边缘应有连续的深色像素带。
+        """
+        frame = np.full((480, 640, 3), 200, dtype=np.uint8)
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        geo = compute_lego_geometry(landmarks)
+        cx = geo['center_x']
+        cy = geo['center_y']
+        half_w = geo['head_width'] // 2
+
+        # 检查左边缘附近是否有深色轮廓像素
+        left_edge_x = cx - half_w
+        edge_strip = result[cy - 20:cy + 20, max(0, left_edge_x - 2):left_edge_x + 5]
+        min_brightness = np.min(np.mean(edge_strip, axis=2))
+        assert min_brightness < 150, f"左边缘最暗像素 {min_brightness:.0f}，应有清晰轮廓 (< 150)"
+
+    def test_hair_covers_top_of_head(self):
+        """头发部分应覆盖头顶上方区域
+
+        LEGO 发型像头盔一样扣在头上，覆盖头顶以上的区域。
+        """
+        frame = np.full((480, 640, 3), 200, dtype=np.uint8)
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        geo = compute_lego_geometry(landmarks)
+        cx = geo['center_x']
+        cy = geo['center_y']
+        half_h = geo['head_height'] // 2
+
+        # 头顶上方区域不应全是背景色，应被头发覆盖
+        hair_region = result[max(0, cy - half_h - 20):cy - half_h + 5,
+                             cx - 20:cx + 20]
+        not_bg = np.sum(np.any(hair_region != 200, axis=2))
+        assert not_bg > 50, f"头顶区域应被头发覆盖，非背景像素只有 {not_bg}"
+
+    def test_stud_is_visible_above_head(self):
+        """凸点应在头顶清晰可见
+
+        LEGO 标志性的顶部圆柱凸点是识别 LEGO 头的关键。
+        """
+        frame = np.full((480, 640, 3), 100, dtype=np.uint8)  # 深灰背景
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        geo = compute_lego_geometry(landmarks)
+        sx, sy = geo['stud_center']
+        sr = geo['stud_radius']
+
+        # 凸点位置应有非背景色的明亮像素
+        stud_region = result[max(0, sy - sr):sy + sr,
+                             max(0, sx - sr):sx + sr]
+        bright_pixels = np.sum(np.mean(stud_region, axis=2) > 150)
+        assert bright_pixels > 20, f"凸点位置应有明亮像素，实际只有 {bright_pixels}"
+
+    def test_3d_cylinder_shading_center_brighter_than_edges(self):
+        """3D 圆柱体效果：头部中心应比左右边缘更亮
+
+        真实 LEGO 头是圆柱体，中心受到正面光照最亮，
+        两侧因曲面而逐渐变暗，产生立体感。
+        """
+        frame = np.full((480, 640, 3), 100, dtype=np.uint8)
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        geo = compute_lego_geometry(landmarks)
+        cx = geo['center_x']
+        cy = geo['center_y']
+        half_w = geo['head_width'] // 2
+
+        # 取头部下方空白区域（嘴巴和底部椭圆之间，确保无遮挡）
+        y_sample = cy + int(geo['head_height'] * 0.38)
+        center_strip = result[y_sample - 3:y_sample + 3, cx - 10:cx + 10]
+        left_strip = result[y_sample - 3:y_sample + 3,
+                            max(0, cx - half_w + 8):cx - half_w + 18]
+        right_strip = result[y_sample - 3:y_sample + 3,
+                             cx + half_w - 18:cx + half_w - 8]
+
+        center_brightness = np.mean(center_strip)
+        left_brightness = np.mean(left_strip)
+        right_brightness = np.mean(right_strip)
+
+        assert center_brightness > left_brightness + 10, \
+            f"中心({center_brightness:.0f})应比左侧({left_brightness:.0f})更亮"
+        assert center_brightness > right_brightness + 10, \
+            f"中心({center_brightness:.0f})应比右侧({right_brightness:.0f})更亮"
+
+    def test_3d_head_has_elliptical_chin(self):
+        """3D 圆柱体底部应有椭圆弧形下巴（不被头发遮挡）
+
+        从正面看，圆柱体底部呈椭圆弧线收窄。
+        底部椭圆弧最低点附近的宽度应明显窄于头部中段。
+        这是区分 2D 矩形和 3D 圆柱的关键视觉特征。
+        """
+        frame = np.full((480, 640, 3), 100, dtype=np.uint8)
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        geo = compute_lego_geometry(landmarks)
+        cx = geo['center_x']
+        cy = geo['center_y']
+        hw = geo['head_width']
+        hh = geo['head_height']
+        half_h = hh // 2
+        cap_ry = int(hh * 0.08)  # 与渲染代码一致
+
+        # 底部椭圆弧最低点附近 vs 中段
+        bottom_y = cy + half_h + cap_ry - 3  # 接近椭圆弧底端
+        mid_y = cy
+
+        def count_non_bg_width(y_pos):
+            row = result[y_pos, max(0, cx - hw):cx + hw]
+            non_bg = np.any(row != 100, axis=1)
+            if np.any(non_bg):
+                indices = np.where(non_bg)[0]
+                return indices[-1] - indices[0]
+            return 0
+
+        bottom_width = count_non_bg_width(bottom_y)
+        mid_width = count_non_bg_width(mid_y)
+
+        # 底部宽度应明显小于中段（椭圆收窄）
+        assert bottom_width < mid_width * 0.8, \
+            f"底部宽度({bottom_width})应窄于中段({mid_width})的80%，体现椭圆弧"
+
+    def test_3d_bottom_chin_is_visible(self):
+        """3D 圆柱体底部应有下巴弧线
+
+        LEGO 头底部是椭圆弧形的下巴/颈部连接处。
+        底部附近应有深色的弧线或阴影。
+        """
+        frame = np.full((480, 640, 3), 100, dtype=np.uint8)
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        geo = compute_lego_geometry(landmarks)
+        cx = geo['center_x']
+        cy = geo['center_y']
+        half_h = geo['head_height'] // 2
+
+        # 头部底部边缘附近应有明显区别于背景的像素
+        bottom_y = cy + half_h
+        bottom_region = result[bottom_y - 5:bottom_y + 5, cx - 20:cx + 20]
+        # 底部应有非背景色的像素（头部颜色或阴影）
+        non_bg_count = np.sum(np.any(bottom_region != 100, axis=2))
+        assert non_bg_count > 30, f"底部应有可见像素，实际非背景像素 {non_bg_count}"
+
 
 class TestExtractFaceFeatures:
     """测试从真实图像和特征点提取个性化面部特征"""
