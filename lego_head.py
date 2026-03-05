@@ -15,11 +15,11 @@ import numpy as np
 
 
 # LEGO 经典颜色 (BGR 格式)
-LEGO_YELLOW = (0, 215, 255)        # 头部黄色
-LEGO_YELLOW_DARK = (0, 180, 220)   # 头部暗部/阴影
+LEGO_YELLOW = (60, 220, 246)       # 头部主色（更柔和的浅黄）
+LEGO_YELLOW_DARK = (40, 190, 225)  # 头部暗部/阴影
 LEGO_BLACK = (0, 0, 0)             # 眼睛和嘴巴
-LEGO_OUTLINE = (0, 140, 180)       # 轮廓线（深黄色）
-LEGO_STUD_TOP = (30, 230, 255)     # 凸点顶部（亮黄色）
+LEGO_OUTLINE = (25, 155, 190)      # 轮廓线（更柔和）
+LEGO_STUD_TOP = (95, 235, 250)     # 凸点顶部（更接近参考图）
 
 
 def compute_eye_openness(landmarks):
@@ -191,9 +191,9 @@ def compute_lego_geometry(landmarks):
     chin_y = landmarks[8][1]
     face_height = abs(chin_y - brow_y)
 
-    # LEGO 头部尺寸：比人脸略大，圆柱形比例
+    # LEGO 头部尺寸：比人脸略大，但保持接近方形（避免“拉长”）
     head_width = int(face_width * 1.3)
-    head_height = int(head_width * 1.25)  # LEGO 头部高宽比约 1.25
+    head_height = int(head_width * 1.05)
 
     # 头部中心：基于眉毛和下巴的中间位置
     face_center_y = (brow_y + chin_y) // 2
@@ -285,49 +285,21 @@ def draw_lego_head(frame, landmarks):
 
     # LEGO 黄色主色调（微量肤色调整）
     skin = features['skin_color']
-    head_color = _blend_color(skin, LEGO_YELLOW, 0.82)
+    head_color = _blend_color(skin, LEGO_YELLOW, 0.90)
     head_outline = LEGO_OUTLINE
 
     # --- 1. 绘制 3D 圆柱体头部 ---
     _draw_3d_cylinder(frame, cx, cy, hw, hh, head_color, head_outline)
 
-    # --- 2. 绘制头发（方块状 LEGO 发件） ---
-    hair_color = features['hair_color']
-    hair_h = int(hh * 0.20)
-    hair_overhang = int(hw * 0.04)
-    # 发件底部与顶部椭圆盖齐平
-    cap_ry = int(hh * 0.08)  # 与 _draw_3d_cylinder 的 cap_ry 一致
-    hair_bottom_y = cy - half_h + cap_ry
-    hair_top_y = hair_bottom_y - hair_h
-    hair_outline_c = _darken_color(hair_color, 0.45)
-    hair_ol_thick = max(2, int(hw * 0.03))
-
-    hair_left = cx - half_w - hair_overhang
-    hair_right = cx + half_w + hair_overhang
-
-    # 发件主体
-    hair_pts = np.array([
-        [hair_left, hair_bottom_y],
-        [hair_left, hair_top_y + int(hair_h * 0.2)],
-        [hair_left + int(hw * 0.08), hair_top_y],
-        [hair_right - int(hw * 0.08), hair_top_y],
-        [hair_right, hair_top_y + int(hair_h * 0.2)],
-        [hair_right, hair_bottom_y],
-    ], dtype=np.int32)
-    cv2.fillPoly(frame, [hair_pts], hair_color, cv2.LINE_AA)
-    cv2.polylines(frame, [hair_pts], True, hair_outline_c,
-                  hair_ol_thick, cv2.LINE_AA)
-
-    # --- 3. 绘制 3D 凸点 (stud) ---
-    sx, sy = geo['stud_center']
-    sr = max(geo['stud_radius'], int(hw * 0.14))
-    # 凸点位于发件顶部
-    stud_base_y = hair_top_y
-    stud_height = max(int(sr * 0.8), 5)
+    # --- 2. 绘制 3D 凸点 (stud) ---
+    # 参考目标图：顶部只保留窄短凸点，不绘制宽发件
+    sr = max(int(hw * 0.14), 10)
+    stud_base_y = cy - half_h
+    stud_height = max(int(sr * 0.75), 7)
     _draw_3d_stud(frame, cx, stud_base_y, sr, stud_height,
                   head_color, head_outline, hw)
 
-    # --- 4. 绘制眼睛（动态开合，经典 LEGO 大黑点） ---
+    # --- 3. 绘制眼睛（动态开合，经典 LEGO 大黑点） ---
     eye_max_radius = max(4, int(hw * 0.085))
     lx, ly = geo['left_eye']
     rx, ry = geo['right_eye']
@@ -338,7 +310,7 @@ def draw_lego_head(frame, landmarks):
     _draw_lego_eye(frame, lx, ly, eye_max_radius, left_open, hw)
     _draw_lego_eye(frame, rx, ry, eye_max_radius, right_open, hw)
 
-    # --- 5. 绘制眉毛 ---
+    # --- 4. 绘制眉毛 ---
     brow_lx, brow_ly = geo['brow_left']
     brow_rx, brow_ry = geo['brow_right']
     brow_w = geo['brow_width']
@@ -352,7 +324,7 @@ def draw_lego_head(frame, landmarks):
     _draw_lego_brow(frame, brow_rx, brow_ry, brow_w, right_brow_angle,
                     brow_thickness, head_outline)
 
-    # --- 6. 绘制嘴巴（动态开合） ---
+    # --- 5. 绘制嘴巴（动态开合） ---
     mx, my = geo['mouth_center']
     mw = geo['mouth_width']
     mouth_open = features['mouth_openness']
@@ -378,7 +350,7 @@ def _draw_3d_cylinder(frame, cx, cy, width, height, base_color, outline_color):
 
     # 准备颜色
     b_base, g_base, r_base = base_color
-    dark_factor = 0.65  # 边缘最暗为基色的 65%
+    dark_factor = 0.80  # 边缘最暗为基色的 80%，降低夸张对比
 
     # --- 逐列绘制圆柱体主体（带渐变）---
     for dx in range(-half_w, half_w + 1):
@@ -397,11 +369,10 @@ def _draw_3d_cylinder(frame, cx, cy, width, height, base_color, outline_color):
         color = (col_b, col_g, col_r)
 
         # 该列的纵向范围：从顶部椭圆到底部椭圆
-        # 顶部椭圆：y = cy - half_h + cap_ry * (1 - sqrt(1 - (dx/half_w)^2))
-        # 让顶部呈椭圆弧形
+        # 顶部椭圆：整体下移一个 cap_ry，避免头顶显得过高过宽
         if half_w > 0 and abs(dx) <= half_w:
             ellipse_t = 1.0 - math.sqrt(max(0, 1.0 - t * t))
-            top_y = int(cy - half_h + cap_ry * ellipse_t)
+            top_y = int(cy - half_h + cap_ry + cap_ry * ellipse_t)
             bottom_y = int(cy + half_h - cap_ry * ellipse_t)
         else:
             top_y = cy - half_h + cap_ry
@@ -416,7 +387,7 @@ def _draw_3d_cylinder(frame, cx, cy, width, height, base_color, outline_color):
     # --- 顶部椭圆盖面 ---
     # 盖面颜色略亮（顶面受光）
     cap_color = _blend_color(base_color, (40, 235, 255), 0.15)
-    cap_center_y = cy - half_h
+    cap_center_y = cy - half_h + cap_ry
     cv2.ellipse(frame, (cx, cap_center_y), (half_w, cap_ry), 0, 0, 360,
                 cap_color, -1, cv2.LINE_AA)
     # 盖面轮廓
@@ -425,11 +396,12 @@ def _draw_3d_cylinder(frame, cx, cy, width, height, base_color, outline_color):
 
     # --- 底部椭圆弧（下半部分可见） ---
     bottom_center_y = cy + half_h
+    bottom_rx = int(half_w * 0.88)
     # 只画下半弧（0~180度），上半弧被圆柱体遮挡
     bottom_dark = _darken_color(base_color, 0.55)
-    cv2.ellipse(frame, (cx, bottom_center_y), (half_w, cap_ry), 0, 0, 180,
+    cv2.ellipse(frame, (cx, bottom_center_y), (bottom_rx, cap_ry), 0, 0, 180,
                 bottom_dark, -1, cv2.LINE_AA)
-    cv2.ellipse(frame, (cx, bottom_center_y), (half_w, cap_ry), 0, 0, 180,
+    cv2.ellipse(frame, (cx, bottom_center_y), (bottom_rx, cap_ry), 0, 0, 180,
                 outline_color, max(2, int(width * 0.02)), cv2.LINE_AA)
 
     # --- 左右轮廓线 ---
@@ -452,7 +424,7 @@ def _draw_3d_cylinder(frame, cx, cy, width, height, base_color, outline_color):
                       (highlight_x - highlight_w // 2, highlight_top),
                       (highlight_x + highlight_w // 2, highlight_bot),
                       (60, 240, 255), -1)
-        cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+        cv2.addWeighted(overlay, 0.12, frame, 0.88, 0, frame)
 
 
 def _draw_3d_stud(frame, cx, base_y, radius, height, head_color, outline_color, hw):

@@ -82,8 +82,10 @@ class TestComputeLegoGeometry:
 
         # 头宽应大于人脸宽度（覆盖整个脸）
         assert geo['head_width'] >= 100
-        # 高度应大于宽度（LEGO 头是竖直的圆柱体）
-        assert geo['head_height'] > geo['head_width'] * 0.9
+        # 参考用户目标图：头部应接近方形，不应明显拉长
+        ratio = geo['head_height'] / geo['head_width']
+        assert ratio > 0.9
+        assert ratio < 1.12, f"头部过长，高宽比={ratio:.2f}，应接近 1.0"
 
     def test_eyes_inside_head_bounds(self):
         """两只眼睛应在头部范围内"""
@@ -252,6 +254,27 @@ class TestDrawLegoHead:
         assert avg_g > 170, f"G 通道 {avg_g:.0f} 太低，LEGO 黄色 G 应 > 170"
         assert avg_b < 100, f"B 通道 {avg_b:.0f} 太高，LEGO 黄色 B 应 < 100"
 
+    def test_head_color_is_soft_yellow_not_over_saturated(self):
+        """颜色应接近参考图的柔和黄，而不是过饱和亮黄
+
+        用户参考图是偏柔和的浅黄：
+        - B 通道不应太低（避免“荧光黄”）
+        - 明度保持高亮，但不过分刺眼
+        """
+        frame = np.full((480, 640, 3), 120, dtype=np.uint8)
+        landmarks = self._make_landmarks(center_x=320, center_y=240)
+        result = draw_lego_head(frame, landmarks)
+
+        region = result[225:255, 300:340]
+        avg_b = np.mean(region[:, :, 0])
+        avg_g = np.mean(region[:, :, 1])
+        avg_r = np.mean(region[:, :, 2])
+
+        # 柔和黄应有一定蓝通道，避免纯饱和黄
+        assert avg_b > 35, f"B 通道 {avg_b:.0f} 过低，颜色偏刺眼"
+        assert 180 < avg_g < 245, f"G 通道 {avg_g:.0f} 不在柔和黄范围"
+        assert 210 < avg_r < 255, f"R 通道 {avg_r:.0f} 不在柔和黄范围"
+
     def test_head_has_thick_outline(self):
         """LEGO 头部应有明显的深色轮廓线
 
@@ -273,10 +296,11 @@ class TestDrawLegoHead:
         min_brightness = np.min(np.mean(edge_strip, axis=2))
         assert min_brightness < 150, f"左边缘最暗像素 {min_brightness:.0f}，应有清晰轮廓 (< 150)"
 
-    def test_hair_covers_top_of_head(self):
-        """头发部分应覆盖头顶上方区域
+    def test_top_protrusion_is_narrow_like_stud(self):
+        """顶部应是窄凸点，而不是整块宽发件
 
-        LEGO 发型像头盔一样扣在头上，覆盖头顶以上的区域。
+        目标效果里，头顶上方只保留中间窄凸点，
+        不应该出现横向很宽的顶盖/发件。
         """
         frame = np.full((480, 640, 3), 200, dtype=np.uint8)
         landmarks = self._make_landmarks(center_x=320, center_y=240)
@@ -286,12 +310,20 @@ class TestDrawLegoHead:
         cx = geo['center_x']
         cy = geo['center_y']
         half_h = geo['head_height'] // 2
+        hw = geo['head_width']
 
-        # 头顶上方区域不应全是背景色，应被头发覆盖
-        hair_region = result[max(0, cy - half_h - 20):cy - half_h + 5,
-                             cx - 20:cx + 20]
-        not_bg = np.sum(np.any(hair_region != 200, axis=2))
-        assert not_bg > 50, f"头顶区域应被头发覆盖，非背景像素只有 {not_bg}"
+        # 取头顶之上的一条扫描线，统计非背景宽度
+        y = max(0, cy - half_h - int(hw * 0.08))
+        row = result[y, max(0, cx - hw):cx + hw]
+        non_bg = np.any(row != 200, axis=1)
+        if np.any(non_bg):
+            idx = np.where(non_bg)[0]
+            top_width = idx[-1] - idx[0]
+        else:
+            top_width = 0
+
+        assert top_width > int(hw * 0.22), f"顶部凸点过小({top_width})"
+        assert top_width < int(hw * 0.5), f"顶部过宽({top_width})，应接近窄凸点"
 
     def test_stud_is_visible_above_head(self):
         """凸点应在头顶清晰可见
